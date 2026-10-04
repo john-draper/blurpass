@@ -20,6 +20,7 @@ class FrameVerdict:
 class Segment:
     start: float
     end: float
+    category: str = "gore"
     frames: list[FrameVerdict] = field(default_factory=list)
 
     @property
@@ -86,7 +87,6 @@ def build_segments(
             merged.append((s, e))
 
     # pad, clamp to video bounds, drop short segments
-    by_time = {round(v.timestamp, 4): v for v in verdicts}
     segments: list[Segment] = []
     for s, e in merged:
         s2 = max(0.0, s - pad)
@@ -96,3 +96,19 @@ def build_segments(
         members = [v for v in flagged if s <= v.timestamp < e]
         segments.append(Segment(start=round(s2, 3), end=round(e2, 3), frames=members))
     return segments
+
+
+def merge_segments(segments: list[Segment]) -> list[Segment]:
+    """Union overlapping/touching windows across categories (blur is whole-frame,
+    so two categories flagging the same moment need one window, not two stacked
+    blurs). Output is sorted; category becomes 'merged' when windows overlap."""
+    out: list[Segment] = []
+    for s in sorted(segments, key=lambda x: x.start):
+        if out and s.start <= out[-1].end:
+            prev = out[-1]
+            cat = prev.category if prev.category == s.category else "merged"
+            out[-1] = Segment(prev.start, max(prev.end, s.end), cat,
+                              prev.frames + s.frames)
+        else:
+            out.append(Segment(s.start, s.end, s.category, s.frames))
+    return out

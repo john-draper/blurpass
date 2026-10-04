@@ -19,6 +19,7 @@
     "judge": "Qwen2.5-VL-7B @ threshold 0.70, CLIP gate 0.45",
     "result": "6 segments / 28s: 5 TP, 1 FP, 1 FN",
     "frontier": "FN hanging (0.68) == FP chess (0.68); FP 52:57 (0.84) vs TP burnt woman (0.90). Threshold-inseparable pairs - a judge upgrade has to beat these.",
-    "band_test": "lowering CLIP gate 0.45->0.30 sent 414 more frames to VLM, zero new confirms - gate stays 0.45"
+    "band_test": "lowering CLIP gate 0.45->0.30 sent 414 more frames to VLM, zero new confirms - gate stays 0.45",
+    "nudity_notes": "Same film has no actual nudity: underwear bathroom scenes score 0.76-0.84 (despite the question excluding underwear), clothed noise 0.62-0.73, so nudity threshold defaults to 0.85. Animated films (Moana test) were fixed by an explicit animation exclusion in the VLM question: previously-confirmed frames dropped to 0.03-0.11."
   }
 }

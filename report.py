@@ -7,8 +7,6 @@ import shutil
 import time
 from pathlib import Path
 
-from segments import Segment
-
 
 def _fmt_ts(seconds: float) -> str:
     m, s = divmod(seconds, 60)
@@ -38,16 +36,17 @@ def write_json(
         json.dump(payload, f, indent=2)
 
 
-def _thumb_grid(seg_frames: list[dict], thumbs_dir_rel: str, max_thumbs: int) -> str:
+def _thumb_grid(seg_frames: list[dict], category: str, max_thumbs: int) -> str:
     shown = seg_frames[:max_thumbs]
     cells = []
     for fr in shown:
         name = Path(fr["frame"]).name
-        clip = fr["clip_score"]
-        vlm = fr.get("vlm_score")
+        cat = fr.get(category, {})
+        clip = cat.get("clip", 0.0)
+        vlm = cat.get("vlm")
         vlm_txt = f" | vlm {vlm:.2f}" if vlm is not None else ""
         cells.append(
-            f'<figure><img loading="lazy" src="{thumbs_dir_rel}/{name}" alt="t={fr["timestamp"]:.1f}s">'
+            f'<figure><img loading="lazy" src="thumbs/{name}" alt="t={fr["timestamp"]:.1f}s">'
             f"<figcaption>{_fmt_ts(fr['timestamp'])} | clip {clip:.2f}{vlm_txt}</figcaption></figure>"
         )
     extra = len(seg_frames) - len(shown)
@@ -67,20 +66,36 @@ def write_html(
     max_thumbs_per_segment: int,
     keep_frames_dir: Path | None = None,
 ) -> None:
-    flagged_count = sum(1 for f in frames if f.get("vlm_score") is not None or f.get("flagged", False))
+    categories = list(settings.get("categories", ["gore"]))
+    cat_segs = {
+        cat: [s for s in segments if s.get("category", "gore") == cat]
+        for cat in categories
+    }
     total_blur = sum(s["end"] - s["start"] for s in segments)
 
-    seg_rows = []
+    cards = "".join(
+        f'<div class="card"><div class="k">{cat} segments</div>'
+        f'<div class="v">{len(cat_segs[cat])}</div></div>'
+        f'<div class="card"><div class="k">{cat} blur</div>'
+        f'<div class="v">{sum(s["end"] - s["start"] for s in cat_segs[cat]):.0f}s</div></div>'
+        for cat in categories
+    )
+
+    seg_blocks = []
     for i, s in enumerate(segments, 1):
+        cat = s.get("category", "gore")
         seg_frames = s.get("frames", [])
-        thumbs = _thumb_grid(seg_frames, "thumbs", max_thumbs_per_segment)
-        seg_rows.append(f"""
+        thumbs = _thumb_grid(seg_frames, cat, max_thumbs_per_segment)
+        peak_vlm = s.get("peak_vlm")
+        vlm_txt = f" | peak vlm {peak_vlm:.2f}" if peak_vlm is not None else ""
+        seg_blocks.append(f"""
       <div class="segment">
         <div class="seghead">
           <span class="num">#{i}</span>
+          <span class="cat cat-{cat}">{cat}</span>
           <span class="time">{_fmt_ts(s['start'])} &rarr; {_fmt_ts(s['end'])}</span>
           <span class="dur">{s['end'] - s['start']:.1f}s</span>
-          <span class="peak">peak clip {s.get('peak_clip', 0):.2f}{f" | peak vlm {s['peak_vlm']:.2f}" if s.get('peak_vlm') is not None else ''}</span>
+          <span class="peak">peak clip {s.get('peak_clip', 0):.2f}{vlm_txt}</span>
         </div>
         <div class="thumbs">{thumbs}</div>
       </div>""")
@@ -103,6 +118,11 @@ def write_html(
               padding: 12px 14px; margin-bottom: 14px; }}
   .seghead {{ display: flex; gap: 14px; align-items: baseline; font-size: 14px; margin-bottom: 8px; }}
   .num {{ color: #f0a35e; font-weight: 700; }}
+  .cat {{ font-size: 11px; text-transform: uppercase; letter-spacing: .5px; border-radius: 4px;
+          padding: 2px 8px; }}
+  .cat-gore {{ background: #4a1f1f; color: #e88f8f; }}
+  .cat-nudity {{ background: #2e3a5c; color: #9fb4e8; }}
+  .cat-merged {{ background: #3d3450; color: #c3a8e8; }}
   .time {{ font-family: Consolas, monospace; font-size: 15px; }}
   .dur {{ color: #7d8590; }}
   .peak {{ color: #7d8590; margin-left: auto; font-size: 12px; }}
@@ -118,14 +138,12 @@ def write_html(
   <div class="sub">BlurPass report &middot; {info.get('duration', 0):.0f}s video &middot; scanned {time.strftime('%Y-%m-%d %H:%M')}</div>
   <div class="summary">
     <div class="card"><div class="k">Frames scanned</div><div class="v">{len(frames)}</div></div>
-    <div class="card"><div class="k">Flagged frames</div><div class="v">{flagged_count}</div></div>
-    <div class="card"><div class="k">Segments</div><div class="v">{len(segments)}</div></div>
+    {cards}
     <div class="card"><div class="k">Total blur</div><div class="v">{total_blur:.0f}s</div></div>
     <div class="card"><div class="k">Sampling</div><div class="v">{st.get('sampling_fps', '?')}/s</div></div>
-    <div class="card"><div class="k">Clip thr</div><div class="v">{st.get('clip_threshold', '?')}</div></div>
-    <div class="card"><div class="k">VLM</div><div class="v">{st.get('vlm_backend', 'none')} @{st.get('vlm_threshold', '-')}</div></div>
+    <div class="card"><div class="k">VLM</div><div class="v">{st.get('vlm_backend', 'none')}</div></div>
   </div>
-  {('<div class="none">No gore detected - nothing would be blurred.</div>' if not segments else ''.join(seg_rows))}
+  {('<div class="none">Nothing flagged - no segments would be blurred.</div>' if not segments else ''.join(seg_blocks))}
 </body></html>"""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:

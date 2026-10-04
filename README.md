@@ -80,6 +80,28 @@ Reports land in `reports\<video name>\report.html` with a thumbnail grid of
 every flagged frame and its CLIP/VLM scores - use it to sanity-check and tune
 thresholds before trusting a batch run.
 
+## Categories
+
+`gore` and `nudity` are enabled by default; control per run or in
+`config.toml [categories]`:
+
+```
+python blurpass.py process "movie.mkv" --categories gore     # gore only
+python blurpass.py process "movie.mkv" --categories nudity   # nudity only
+```
+
+Each category has its own CLIP prompt ensemble, VLM question, and thresholds
+(`[gore]` / `[nudity]` in config.toml). Blur windows from overlapping
+categories merge into one window at render time. Adding a new category is a
+prompt list + question entry in `detector.py` plus a config section.
+
+**Nudity calibration status:** the judge explicitly excludes animated
+characters (a Moana test produced 13 minutes of false blur without that),
+underwear, and swimwear. On a film with zero nudity, suggestive
+underwear/bathroom scenes score up to 0.84, so the default confirm threshold
+is 0.85 - zero false positives there, but the true-positive side is
+uncalibrated until run on real content. Expect to tune it.
+
 ## Calibrating on your own content
 
 The refinement loop that works: scan a movie, watch the result, label the

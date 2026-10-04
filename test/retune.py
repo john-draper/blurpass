@@ -30,10 +30,22 @@ def main():
     st = r["settings"]
     fps = st["sampling_fps"]
     duration = r["info"]["duration"]
-    cur_clip = st["clip_threshold"]
+    if "thresholds" in st:  # multi-category report
+        category = sys.argv[3] if len(sys.argv) > 3 else st["categories"][0]
+        cur_clip = st["thresholds"][category]["clip_threshold"]
+        get_clip = lambda f: f[category]["clip"]
+        get_vlm = lambda f: f[category]["vlm"]
+        set_vlm = lambda f, p: f[category].__setitem__("vlm", p)
+    else:  # legacy single-category report
+        category = "gore"
+        cur_clip = st["clip_threshold"]
+        get_clip = lambda f: f["clip_score"]
+        get_vlm = lambda f: f["vlm_score"]
+        set_vlm = lambda f, p: f.__setitem__("vlm_score", p)
+    print(f"category: {category}")
 
     band = [i for i, f in enumerate(frames)
-            if f["vlm_score"] is None and f["clip_score"] >= cur_clip - 0.15]
+            if get_vlm(f) is None and get_clip(f) >= cur_clip - 0.15]
     print(f"{len(band)} band frames (clip {cur_clip - 0.15:.2f}-{cur_clip}) never sent to the VLM")
 
     cfg = tomllib.load(open(Path(__file__).parent.parent / "config.toml", "rb"))
@@ -45,11 +57,11 @@ def main():
         [frame_files[j] for j in range(max(0, i - 1), min(len(frame_files), i + 2))]
         for i in band
     ]
-    probs = vlm.confirm(groups)
+    probs = vlm.confirm(groups, category=category)
     for i, p in zip(band, probs):
-        frames[i]["vlm_score"] = round(p, 4)
+        set_vlm(frames[i], round(p, 4))
 
-    verdicts = [FrameVerdict(f["timestamp"], f["clip_score"], f["vlm_score"]) for f in frames]
+    verdicts = [FrameVerdict(f["timestamp"], get_clip(f), get_vlm(f)) for f in frames]
     seg_cfg = cfg["segments"]
 
     def build(clip_thr, vlm_thr):

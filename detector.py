@@ -34,26 +34,59 @@ SAFE_PROMPTS = [
     "an atmospheric scene without any blood",
 ]
 
-def vlm_question(n_frames: int) -> str:
+NUDE_PROMPTS = [
+    "a fully nude naked person",
+    "explicit nudity with exposed genitals",
+    "a topless woman with bare breasts",
+    "a naked person showing bare buttocks",
+    "two people having sexual intercourse",
+    "an intimate sexual scene between adults",
+]
+
+CATEGORY_PROMPTS = {
+    "gore": GORE_PROMPTS,
+    "nudity": NUDE_PROMPTS,
+}
+
+CATEGORY_QUESTIONS = {
+    "gore": (
+        "Judge the scene these frames show. Does the video contain real graphic gore: "
+        "visible blood, open wounds, dead or mutilated bodies, or a hanging, shown by "
+        "real people on camera? Animated, drawn, or cartoon characters do NOT count. "
+        "Red or dramatic lighting, suspense, dancing, sleeping, and emotional distress "
+        "do NOT count. Answer yes only if actual graphic gore is visible."
+    ),
+    "nudity": (
+        "Judge the scene these frames show. Does the video contain real human nudity: "
+        "exposed genitals, bare buttocks, or bare female breasts, shown by real people "
+        "on camera? Animated, drawn, or cartoon characters do NOT count. People in "
+        "underwear or swimwear, and bodies covered by clothing or bedding, do NOT count. "
+        "Answer yes only if actual nudity is visible."
+    ),
+}
+
+
+def vlm_question(n_frames: int, category: str) -> str:
     plural = "frames" if n_frames > 1 else "frame"
+    body = CATEGORY_QUESTIONS[category]
     return (
         f"You are given {n_frames} consecutive {plural} from a video, in chronological order. "
-        "Judge the scene they show. Does the video contain graphic gore: visible blood, "
-        "open wounds, dead or mutilated bodies, or a hanging? "
-        "Red or dramatic lighting, suspense, dancing, sleeping, and emotional distress "
-        "do NOT count. Answer yes only if actual graphic gore is visible. "
+        f"{body} "
         "Answer with exactly one word: yes or no."
     )
 
 
-# Kept for backward reference / docs.
-VLM_QUESTION = vlm_question(1)
-
-# ShieldGemma-2 "Violence & Gore" policy, verbatim from the model card.
-SHIELDGEMMA_VG_POLICY = (
-    "The image shall not contain shocking, sensational, or gratuitous violence, "
-    "such as excessive blood, severe injuries, or dismembered bodies."
-)
+# ShieldGemma-2 policy texts (check the model card for canonical wording).
+SHIELDGEMMA_POLICIES = {
+    "gore": (
+        "The image shall not contain shocking, sensational, or gratuitous violence, "
+        "such as excessive blood, severe injuries, or dismembered bodies."
+    ),
+    "nudity": (
+        "The image shall not contain sexually explicit content, such as nudity, "
+        "sexual intercourse, or intimate sexual contact."
+    ),
+}
 
 
 def pick_device(requested: str, min_free_gb: float) -> str:
@@ -73,7 +106,8 @@ def _chunks(seq, n):
 class ClipTriage:
     """Stage A: zero-shot gore/safe classification, hundreds of fps on GPU."""
 
-    def __init__(self, model: str, pretrained: str, device: str = "auto"):
+    def __init__(self, model: str, pretrained: str, device: str = "auto",
+                 categories: tuple[str, ...] = ("gore",)):
         import open_clip
 
         self.device = pick_device(device, min_free_gb=1.5)
@@ -95,16 +129,21 @@ class ClipTriage:
             emb = feats.mean(dim=0)
             return emb / emb.norm()
 
-        gore = class_embedding(GORE_PROMPTS)
-        safe = class_embedding(SAFE_PROMPTS)
-        text = torch.stack([gore, safe]).to(self.device)
-        self.text_features = text.half() if self.use_half else text
+        self.text_features: dict[str, torch.Tensor] = {}
+        for cat in categories:
+            positive = class_embedding(CATEGORY_PROMPTS[cat])
+            safe = class_embedding(SAFE_PROMPTS)
+            text = torch.stack([positive, safe]).to(self.device)
+            self.text_features[cat] = text.half() if self.use_half else text
         self.logit_scale = self.model.logit_scale.exp().item()
 
     @torch.no_grad()
-    def score(self, paths: list[Path], batch_size: int = 64) -> list[float]:
-        """P(gore) in [0,1] for each image path, in order."""
-        scores: list[float] = []
+    def score_multi(self, paths: list[Path], categories: list[str] | None = None,
+                    batch_size: int = 64) -> dict[str, list[float]]:
+        """P(match) in [0,1] per image path, per category. Images are encoded
+        once per batch and scored against every category's text embeddings."""
+        cats = categories or list(self.text_features)
+        results: dict[str, list[float]] = {c: [] for c in cats}
         for chunk in _chunks(paths, batch_size):
             imgs = []
             for p in chunk:
@@ -115,10 +154,15 @@ class ClipTriage:
                 batch = batch.half()
             feats = self.model.encode_image(batch)
             feats = feats / feats.norm(dim=-1, keepdim=True)
-            logits = self.logit_scale * (feats.float() @ self.text_features.float().T)
-            probs = torch.softmax(logits, dim=-1)[:, 0]
-            scores.extend(probs.cpu().tolist())
-        return scores
+            for c in cats:
+                logits = self.logit_scale * (feats.float() @ self.text_features[c].float().T)
+                probs = torch.softmax(logits, dim=-1)[:, 0]
+                results[c].extend(probs.cpu().tolist())
+        return results
+
+    def score(self, paths: list[Path], category: str = "gore",
+              batch_size: int = 64) -> list[float]:
+        return self.score_multi(paths, [category], batch_size)[category]
 
 
 class _VlmBase:
@@ -162,7 +206,7 @@ class Qwen25Vl(_VlmBase):
         self.tokenizer = self.processor.tokenizer
 
     @torch.no_grad()
-    def confirm(self, frame_groups: list[list[Path]]) -> list[float]:
+    def confirm(self, frame_groups: list[list[Path]], category: str = "gore") -> list[float]:
         """Each group is a short run of consecutive frames (center = judged frame)."""
         from qwen_vl_utils import process_vision_info
 
@@ -171,7 +215,7 @@ class Qwen25Vl(_VlmBase):
             content: list[dict] = [
                 {"type": "image", "image": str(p)} for p in group
             ]
-            content.append({"type": "text", "text": vlm_question(len(group))})
+            content.append({"type": "text", "text": vlm_question(len(group), category)})
             messages = [{"role": "user", "content": content}]
             text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             image_inputs, video_inputs = process_vision_info(messages)
@@ -209,14 +253,14 @@ class ShieldGemma2(_VlmBase):
         self.tokenizer = self.processor.tokenizer
 
     @torch.no_grad()
-    def confirm(self, frame_groups: list[list[Path]]) -> list[float]:
+    def confirm(self, frame_groups: list[list[Path]], category: str = "gore") -> list[float]:
         """Policy model: judges the center frame of each group."""
         out: list[float] = []
         for group in frame_groups:
             center = group[len(group) // 2]
             prompt = (
                 "<start_of_turn>user\n"
-                f"{SHIELDGEMMA_VG_POLICY}\n"
+                f"{SHIELDGEMMA_POLICIES[category]}\n"
                 "Does the content in the image violate the above rule?"
                 "<end_of_turn>\n"
                 "<start_of_turn>model\n"
@@ -234,9 +278,10 @@ class ShieldGemma2(_VlmBase):
         return out
 
 
-def load_clip(cfg: dict) -> ClipTriage:
+def load_clip(cfg: dict, categories: tuple[str, ...] = ("gore",)) -> ClipTriage:
     c = cfg["clip"]
-    return ClipTriage(model=c["model"], pretrained=c["pretrained"], device=c["device"])
+    return ClipTriage(model=c["model"], pretrained=c["pretrained"],
+                      device=c["device"], categories=categories)
 
 
 def load_vlm(cfg: dict) -> _VlmBase | None:
