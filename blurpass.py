@@ -13,13 +13,16 @@ Usage examples:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
+import tempfile
 import time
 import tomllib
 from pathlib import Path
 
 import detector
+import profanity
 import renderer
 import report
 import sampling
@@ -330,6 +333,67 @@ def process_one(bp: BlurPass, video: Path, args) -> bool:
     return True
 
 
+def cmd_mute(args) -> int:
+    """Transcribe audio, mute profanity windows, stream-copy the video."""
+    cfg = load_config()
+    p_cfg = cfg.get("profanity", {})
+    words = profanity.load_words(cfg)
+    if getattr(args, "words_file", None):
+        data = json.load(open(args.words_file, encoding="utf-8"))
+        words = set(data.get("map", data if isinstance(data, list) else []))
+        print(f"[profanity] loaded {len(words)} words from {args.words_file}")
+
+    model_size = getattr(args, "model", None) or p_cfg.get("model", "small.en")
+    device = p_cfg.get("device", "auto")
+
+    failed = []
+    for video in collect_videos(args.inputs, getattr(args, "recursive", False)):
+        print(f"\n=== mute {video.name} ===")
+        try:
+            duration = profanity.audio_duration(video)
+            with tempfile.TemporaryDirectory() as td:
+                wav = Path(td) / "audio.wav"
+                print("[profanity] extracting audio...")
+                profanity.extract_wav(video, wav)
+                words_ts, lang = profanity.transcribe(wav, model_size, device)
+
+            windows, hits = profanity.profanity_windows(
+                words_ts, words,
+                pad_in=p_cfg.get("pad_in", 0.12),
+                pad_out=p_cfg.get("pad_out", 0.2),
+                merge_gap=p_cfg.get("merge_gap", 0.3),
+                duration=duration or 1e9,
+            )
+            print(f"[profanity] {len(hits)} matched words -> {len(windows)} mute window(s)")
+            for tok, s, e in hits:
+                print(f"  {s:8.2f}-{e:8.2f}  {tok}")
+
+            out_dir = Path(args.out) if args.out else video.parent
+            suffix = args.suffix if args.suffix.startswith(".") else f".{args.suffix}"
+            out_path = out_dir / f"{video.stem}{suffix}{video.suffix}"
+
+            if args.dry_run:
+                print(f"[dry-run] would write {out_path} with {len(windows)} mute window(s)")
+                continue
+
+            if out_path.exists() and not args.overwrite:
+                print(f"[mute] output exists, skipping (use --overwrite): {out_path}")
+                continue
+
+            mode = profanity.render_mute(video, windows, out_path)
+            size_mb = out_path.stat().st_size / 1e6
+            print(f"[mute] {mode} -> {out_path.name} ({size_mb:.0f} MB)")
+        except Exception as e:
+            print(f"ERROR: {e}")
+            failed.append(video)
+
+    if failed:
+        print(f"\ndone with {len(failed)} failure(s)")
+        return 1
+    print("\ndone.")
+    return 0
+
+
 def cmd_selftest(args) -> int:
     """Generate synthetic videos and push them through the whole machine."""
     import subprocess
@@ -435,10 +499,22 @@ def main(argv=None) -> int:
     p_test = sub.add_parser("selftest", help="synthetic end-to-end test")
     p_test.add_argument("--no-vlm", action="store_true")
 
+    p_mute = sub.add_parser("mute", help="mute profanity in audio; video untouched")
+    p_mute.add_argument("inputs", nargs="+", help="video file(s) or folder(s)")
+    p_mute.add_argument("--out", help="output directory (default: alongside input)")
+    p_mute.add_argument("--suffix", default=".clean", help="output suffix (default: .clean)")
+    p_mute.add_argument("--overwrite", action="store_true", help="overwrite existing outputs")
+    p_mute.add_argument("--dry-run", action="store_true", help="show mute windows; do not render")
+    p_mute.add_argument("--model", help="faster-whisper model (default: config)")
+    p_mute.add_argument("--words-file", help="JSON word list override (map keys or list)")
+    p_mute.add_argument("--recursive", action="store_true", help="recurse into folders")
+
     args = ap.parse_args(argv)
 
     if args.command == "selftest":
         return cmd_selftest(args)
+    if args.command == "mute":
+        return cmd_mute(args)
 
     cfg = load_config()
     apply_strictness(cfg, args.strictness)
