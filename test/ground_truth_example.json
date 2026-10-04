@@ -1,0 +1,24 @@
+{
+  "video": "The Sixth Sense (1999), 1080p BluRay rip",
+  "note": "Example ground truth from a real calibration session. Labels are per blurred segment from watching the output; timestamps are seconds.",
+  "reviewed_by": "project owner, 2026-10-03 (three review rounds: 3B@1fps, 7B@2fps, 7B retune)",
+  "labels": [
+    {"start": 396.0, "end": 399.0, "verdict": "false_positive", "note": "woman dancing (fixed by 7B judge, 0.41->gone)"},
+    {"start": 845.0, "end": 848.5, "verdict": "false_positive", "note": "14:05 boy playing chess w/ toy soldiers; 7B 0.68"},
+    {"start": 3177.0, "end": 3181.0, "verdict": "false_positive", "note": "52:57 someone leaning over boy in bed; 7B 0.84 - INSEPARABLE from burnt-woman TP 0.90"},
+    {"start": 3343.0, "end": 3348.5, "verdict": "unlabeled", "note": "55:43 kitchen scene region; 7B 0.93; never complained about"},
+    {"start": 3451.5, "end": 3454.0, "verdict": "false_negative", "note": "medium shot 3 hanging bodies; CLIP 0.34 (below gate), 7B 0.68, 1024px 0.73 - identical score to chess FP, not separable"},
+    {"start": 3454.0, "end": 3458.0, "verdict": "true_positive", "note": "closeups gory hanging faces; blurred with pad 1.5"},
+    {"start": 3817.5, "end": 3819.5, "verdict": "true_positive", "note": "blood-stained braid girl; 3B missed at 0.38, 7B 0.97"},
+    {"start": 4494.5, "end": 4499.0, "verdict": "false_positive", "note": "kid in bed red light (fixed by 7B judge, 0.69->0.22)"},
+    {"start": 4453.0, "end": 4456.5, "verdict": "false_positive", "note": "1:17:33 girl under red blanket; 7B 0.62"},
+    {"start": 5244.5, "end": 5247.5, "verdict": "true_positive", "note": "1:27:23 burnt woman; 7B 0.90"},
+    {"start": 5837.0, "end": 5993.0, "verdict": "true_positive", "note": "1:39:47 ending wound flashback; 7B 0.99"}
+  ],
+  "calibration": {
+    "judge": "Qwen2.5-VL-7B @ threshold 0.70, CLIP gate 0.45",
+    "result": "6 segments / 28s: 5 TP, 1 FP, 1 FN",
+    "frontier": "FN hanging (0.68) == FP chess (0.68); FP 52:57 (0.84) vs TP burnt woman (0.90). Threshold-inseparable pairs - a judge upgrade has to beat these.",
+    "band_test": "lowering CLIP gate 0.45->0.30 sent 414 more frames to VLM, zero new confirms - gate stays 0.45"
+  }
+}

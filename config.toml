@@ -1,0 +1,52 @@
+# BlurPass configuration
+# Thresholds marked [preset] are also overridden by --strictness low|medium|high
+
+[sampling]
+fps = 2.0            # frames sampled per second of video (2.0 halves the worst-case
+                     # delay between gore appearing and the blur starting)
+max_frames = 20000   # hard cap per video; fps is lowered automatically if exceeded
+thumb_size = 512     # longest edge (px) of sampled frames
+
+[clip]
+# Stage A: fast zero-shot triage. Flags anything that MIGHT be gore so the VLM
+# can take a closer look. Lower threshold = more sensitive = slower stage B.
+model = "ViT-B-32"
+pretrained = "laion2b_s34b_b79k"
+device = "auto"          # auto | cuda | cpu
+flag_threshold = 0.45    # [preset] P(gore) at/above this sends the frame to stage B
+
+[vlm]
+# Stage B: judgment call on CLIP-flagged frames only.
+# qwen25vl_7b is the calibrated judge: on hand-labeled movie frames it
+# separated TP (>=0.82) from FP (<=0.22) perfectly; the 3B could not (FP 0.69 >
+# a TP 0.38). 7B needs ~16GB VRAM and runs ~3-7 confirmations/s.
+# Known frontier (v1): medium-shot gore at 0.68 and an FP at 0.68 are
+# inseparable; threshold 0.70 accepts that trade.
+backend = "qwen25vl_7b"  # qwen25vl_7b | qwen25vl_3b | shieldgemma2_4b | none
+threshold = 0.70         # [preset] P(gore) at/above this confirms a frame
+device = "auto"
+dtype = "bfloat16"
+max_frames = 4000        # safety cap: max frames sent to the VLM per video; when
+                         # exceeded, the VLM budget goes to the most suspicious
+                         # frames and the rest are treated as clean
+
+[segments]
+merge_gap = 2.0      # flagged runs closer than this (seconds) merge into one segment
+pad = 1.5            # blur this many seconds before/after each segment (covers the
+                     # sampling delay between gore appearing and the next sample)
+min_duration = 1.0   # discard segments shorter than this (after padding)
+
+[render]
+filter = "gblur"     # gblur | boxblur | pixelize
+sigma = 30           # blur strength (gblur sigma; other filters derive from it)
+encoder = "auto"     # auto (h264_nvenc if available, else libx264) | h264_nvenc | libx264
+cq = 23
+
+[presets]
+# strictness -> thresholds. Lower = more sensitive = more blur.
+low    = { clip = 0.65, vlm = 0.80 }
+medium = { clip = 0.45, vlm = 0.70 }
+high   = { clip = 0.30, vlm = 0.55 }
+
+[report]
+max_thumbs_per_segment = 12

@@ -1,0 +1,16 @@
+# BlurPass dependencies
+# NOTE: torch/torchvision MUST come from the cu128 index on this machine
+# (RTX 5090 / Blackwell). Plain PyPI torch on Windows is CPU-only and will
+# silently replace the CUDA build if installed afterwards:
+#
+#   pip install --force-reinstall "torch==2.11.0+cu128" "torchvision==0.26.0+cu128" \
+#       --index-url https://download.pytorch.org/whl/cu128
+#
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+open-clip-torch
+transformers
+accelerate
+pillow
+qwen-vl-utils
+huggingface_hub[cli]

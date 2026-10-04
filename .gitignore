@@ -1,0 +1,13 @@
+# python
+venv/
+__pycache__/
+*.pyc
+
+# scan outputs - contain frame thumbnails from scanned videos
+reports/
+
+# local test media (synthetic videos, downloaded calibration images)
+test/*.mp4
+test/*.jpg
+test/*.png
+test/sfx/
