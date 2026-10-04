@@ -65,6 +65,13 @@ def extract_wav(video: Path, out_wav: Path) -> None:
     )
 
 
+# faster-whisper model alias -> HF repo. Systran publishes the classic sizes;
+# turbo only exists as community CT2 conversions.
+MODEL_REPOS = {
+    "large-v3-turbo": "deepdml/faster-whisper-large-v3-turbo-ct2",
+}
+
+
 def _resolve_model(model_size: str) -> str:
     """faster-whisper 1.2.1's downloader is incompatible with huggingface_hub
     1.x; fetch the model ourselves and hand it a local path."""
@@ -72,7 +79,7 @@ def _resolve_model(model_size: str) -> str:
     if p.is_dir():
         return str(p)
     from huggingface_hub import snapshot_download
-    repo = f"Systran/faster-whisper-{model_size}"
+    repo = MODEL_REPOS.get(model_size, f"Systran/faster-whisper-{model_size}")
     local = snapshot_download(repo)
     print(f"[profanity] model cached at {local}")
     return local

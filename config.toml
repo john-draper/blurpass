@@ -68,7 +68,8 @@ high   = { clip_shift = -0.15, vlm_shift = -0.10 }
 [profanity]
 # Audio swearing filter (blurpass.py mute): faster-whisper word timestamps ->
 # whole-token match -> volume=0 windows. Video is stream-copied.
-model = "small.en"      # faster-whisper model (small.en is a good accuracy/speed fit)
+model = "large-v3-turbo"  # faster-whisper model. turbo = near-large accuracy at
+                          # ~1.6GB VRAM; use small.en only on weak hardware
 device = "auto"         # auto | cuda | cpu (auto falls back to CPU if cuDNN is missing)
 pad_in = 0.12           # mute this much before each word (catch leading consonants)
 pad_out = 0.20          # ...and this much after (trailing sibilance)
