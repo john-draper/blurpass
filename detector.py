@@ -50,18 +50,16 @@ CATEGORY_PROMPTS = {
 
 CATEGORY_QUESTIONS = {
     "gore": (
-        "Judge the scene these frames show. Does the video contain real graphic gore: "
-        "visible blood, open wounds, dead or mutilated bodies, or a hanging, shown by "
-        "real people on camera? Animated, drawn, or cartoon characters do NOT count. "
+        "Judge the scene these frames show. Does the video contain graphic gore: "
+        "visible blood, open wounds, dead or mutilated bodies, or a hanging? "
         "Red or dramatic lighting, suspense, dancing, sleeping, and emotional distress "
         "do NOT count. Answer yes only if actual graphic gore is visible."
     ),
     "nudity": (
-        "Judge the scene these frames show. Does the video contain real human nudity: "
-        "exposed genitals, bare buttocks, or bare female breasts, shown by real people "
-        "on camera? Animated, drawn, or cartoon characters do NOT count. People in "
-        "underwear or swimwear, and bodies covered by clothing or bedding, do NOT count. "
-        "Answer yes only if actual nudity is visible."
+        "Judge the scene these frames show. Does the video show nudity or a suggestive "
+        "state of undress: exposed genitals, bare buttocks, bare female breasts, or a "
+        "person wearing only underwear or partially undressed? Answer yes if a person "
+        "is nude, in underwear, or visibly missing clothing on camera."
     ),
 }
 

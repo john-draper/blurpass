@@ -95,12 +95,13 @@ Each category has its own CLIP prompt ensemble, VLM question, and thresholds
 categories merge into one window at render time. Adding a new category is a
 prompt list + question entry in `detector.py` plus a config section.
 
-**Nudity calibration status:** the judge explicitly excludes animated
-characters (a Moana test produced 13 minutes of false blur without that),
-underwear, and swimwear. On a film with zero nudity, suggestive
-underwear/bathroom scenes score up to 0.84, so the default confirm threshold
-is 0.85 - zero false positives there, but the true-positive side is
-uncalibrated until run on real content. Expect to tune it.
+**Nudity rule:** by default it blurs nudity *and* suggestive undress -
+underwear and partially-undressed scenes count, animated content counts. On a
+film with no real nudity but a bathroom/underwear sequence, those windows
+score 0.86-0.97 while clothed-scene noise stays below 0.85, which is where
+the default threshold sits. If you want only actual nudity, raise the
+threshold (underwear scenes may still catch - edit the question in
+`detector.py CATEGORY_QUESTIONS` to re-add exclusions).
 
 ## Calibrating on your own content
 
